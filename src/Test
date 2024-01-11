@@ -1,0 +1,67 @@
+#r "Microsoft.Graph"
+#r "Newtonsoft.Json"
+
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Primitives;
+using Microsoft.Graph;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+
+public static class GetUserAndDirectReportsFunction
+{
+    [FunctionName("GetUserAndDirectReports")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req)
+    {
+        try
+        {
+            var graphServiceClient = GetGraphServiceClient();
+
+            // Replace with your user's email
+            string userMail = req.Query["userMail"];
+
+            // Fetch user data
+            var user = await graphServiceClient.Users[userMail].Request().GetAsync();
+
+            // Fetch direct reports
+            var directReports = await GetDirectReports(graphServiceClient, user.Id);
+
+            // Combine user and direct reports data
+            var resultData = new
+            {
+                User = user,
+                DirectReports = directReports
+            };
+
+            return new OkObjectResult(resultData);
+        }
+        catch (Exception ex)
+        {
+            return new BadRequestObjectResult($"An error occurred: {ex.Message}");
+        }
+    }
+
+    static GraphServiceClient GetGraphServiceClient()
+    {
+        // For local development, use the default settings provided by Azure Functions runtime
+        var authProvider = new InteractiveBrowserProvider();
+        return new GraphServiceClient(authProvider);
+    }
+
+    static async Task<List<User>> GetDirectReports(GraphServiceClient graphServiceClient, string userId)
+    {
+        var directReports = await graphServiceClient.Users[userId].DirectReports.Request().GetAsync();
+        var directReportUsers = new List<User>();
+
+        foreach (var report in directReports)
+        {
+            var reportUser = await graphServiceClient.Users[report.Id].Request().GetAsync();
+            directReportUsers.Add(reportUser);
+        }
+
+        return directReportUsers;
+    }
+}
