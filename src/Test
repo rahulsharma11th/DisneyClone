@@ -1,3 +1,59 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using PnP.Core.Auth;
+using PnP.Core.Services;
+
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        // Load configuration from appsettings.json
+        IConfigurationRoot configuration = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json")
+            .Build();
+
+        // Set your SharePoint Online site URL and list name in appsettings.json
+        string siteUrl = configuration["SharePointOnlineSiteUrl"];
+        string listName = configuration["SharePointOnlineListName"];
+
+        // Authenticate to SharePoint Online using username and password
+        var username = configuration["Username"];
+        var password = configuration["Password"];
+
+        var authenticationResult = await UsernamePasswordAuthentication(username, password, siteUrl);
+
+        // Create a PnPContext using the authentication result
+        using (var context = await PnPCoreSdk.CreateAsync(authenticationResult))
+        {
+            // Retrieve data from SharePoint Online list
+            var listItems = await context.Web.Lists.GetByTitle(listName).Items.GetAsync();
+
+            // Display the retrieved data
+            foreach (var item in listItems)
+            {
+                Console.WriteLine($"Title: {item.Values["Title"]}");
+                // Add more fields as needed
+            }
+        }
+    }
+
+    static async Task<AuthenticationResult> UsernamePasswordAuthentication(string username, string password, string siteUrl)
+    {
+        var scopes = new[] { siteUrl + "/.default" };
+        var confidentialClientApplication = ConfidentialClientApplicationBuilder
+            .Create(configuration["ClientId"])
+            .WithClientSecret(configuration["ClientSecret"])
+            .Build();
+
+        var authenticationProvider = new UsernamePasswordProvider(confidentialClientApplication, scopes, username, password);
+        var authenticationResult = await authenticationProvider.GetAccessTokenAsync();
+
+        return authenticationResult;
+    }
+}
+
+
 tets/
 //
 using System;
