@@ -1,4 +1,67 @@
 using System;
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.SharePoint.Client;
+
+public static class UserProfileFunction
+{
+    [FunctionName("GetUserProfile")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        log.LogInformation("C# HTTP trigger function processed a request.");
+
+        // Replace these with your SharePoint and user details
+        string siteUrl = "https://yoursharepointsite.sharepoint.com";
+        string username = "user@yourdomain.com";
+        string password = "YourPassword";
+
+        var userProfiles = await GetUserProfile(siteUrl, username, password);
+
+        return new OkObjectResult(userProfiles);
+    }
+
+    static async Task<Dictionary<string, string>> GetUserProfile(string siteUrl, string username, string password)
+    {
+        var userProfiles = new Dictionary<string, string>();
+
+        using (var clientContext = new ClientContext(siteUrl))
+        {
+            var securePassword = new SecureString();
+            foreach (char c in password)
+            {
+                securePassword.AppendChar(c);
+            }
+
+            clientContext.Credentials = new SharePointOnlineCredentials(username, securePassword);
+
+            PeopleManager peopleManager = new PeopleManager(clientContext);
+            PersonProperties personProperties = peopleManager.GetMyProperties();
+
+            clientContext.Load(personProperties);
+            await clientContext.ExecuteQueryAsync();
+
+            foreach (var userProfileProperty in personProperties.UserProfileProperties)
+            {
+                userProfiles.Add(userProfileProperty.Key, userProfileProperty.Value.ToString());
+            }
+        }
+
+        return userProfiles;
+    }
+}
+
+/////////////
+
+
+
+
+using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using PnP.Core.Auth;
