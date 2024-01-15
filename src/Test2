@@ -1,72 +1,45 @@
-using System;
-using System.Net.Http;
+using System.IO;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.SharePoint.Client;
-using Microsoft.Identity.Client;
-using Microsoft.SharePoint.Client.UserProfiles;
+using Microsoft.Graph;
+using Azure.Identity;
 
-namespace FunctionApp1
+public static class GraphApiFunction
 {
-    public static class SharePointFunction
+    [FunctionName("GetGraphData")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+        ILogger log)
     {
-        [FunctionName("GetUserProfile")]
-        public static async Task<HttpResponseMessage> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequestMessage req,
-            ILogger log)
+        var clientId = "your_client_id";
+        var tenantId = "your_tenant_id";
+        var clientSecret = "your_client_secret";
+        var scopes = new[] { "https://graph.microsoft.com/.default" };
+
+        var options = new TokenCredentialOptions
         {
-            log.LogInformation("C# HTTP trigger function processed a request.");
+            AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+        };
 
-            string siteUrl = "https://yourtenant.sharepoint.com";
-            string clientId = "your-client-id";
-            string clientSecret = "your-client-secret";
-            string tenantId = "your-tenant-id";
-            string userName = "user@yourtenant.onmicrosoft.com"; // Specify the user you want to get profile data for
+        // Build a client secret credential
+        var clientSecretCredential = new ClientSecretCredential(
+            tenantId, clientId, clientSecret, options);
 
-            var context = await GetSharePointContext(siteUrl, clientId, clientSecret, tenantId);
+        // Initialize the GraphServiceClient
+        var graphClient = new GraphServiceClient(clientSecretCredential, scopes);
 
-            PeopleManager peopleManager = new PeopleManager(context);
-            PersonProperties personProperties = peopleManager.GetPropertiesFor(userName);
-            context.Load(personProperties);
-            await context.ExecuteQueryAsync();
+        // Make a request to the Graph API
+        var users = await graphClient.Users
+            .Request()
+            .GetAsync();
 
-            // Now you have the user's profile data in personProperties
-            // You can log or return this data as needed
+        // Process the data as needed
+        // ...
 
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent("User profile data retrieved successfully.")
-            };
-        }
-
-        private static async Task<ClientContext> GetSharePointContext(string siteUrl, string clientId, string clientSecret, string tenantId)
-        {
-            string authority = $"https://login.microsoftonline.com/{tenantId}/v2.0";
-
-            IConfidentialClientApplication app = ConfidentialClientApplicationBuilder.Create(clientId)
-                .WithClientSecret(clientSecret)
-                .WithAuthority(new Uri(authority))
-                .Build();
-
-            string[] scopes = new string[] { "https://graph.microsoft.com/.default" };
-
-            AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
-
-            var context = new ClientContext(siteUrl);
-
-            // Corrected assignment of the event handler
-            context.ExecutingWebRequest += (sender, args) =>
-            {
-                args.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + result.AccessToken;
-            };
-
-            return context;
-        }
+        return new OkObjectResult(users);
     }
-
-
- 
-
 }
