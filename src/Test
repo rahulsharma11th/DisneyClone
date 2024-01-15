@@ -1,3 +1,91 @@
+///
+using Microsoft.Identity.Client;
+using Microsoft.SharePoint.Client;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Security;
+using System.Threading.Tasks;
+
+public class UserProfileFunction
+{
+    private readonly IConfiguration _configuration;
+
+    public UserProfileFunction(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    [FunctionName("GetUserProfile")]
+    public async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        log.LogInformation("C# HTTP trigger function processed a request.");
+
+        string siteUrl = _configuration["SharePointSiteUrl"];
+        string clientId = _configuration["SharePointClientId"];
+        string clientSecret = _configuration["SharePointClientSecret"];
+        string targetUser = "i:0#.f|membership|alexd@spotenant.onmicrosoft.com";
+
+        try
+        {
+            var clientCredential = new ClientCredential(clientId, clientSecret);
+
+            using (var clientContext = AuthenticationHelper.GetAppOnlyAuthenticatedContext(siteUrl, clientCredential))
+            {
+                PeopleManager peopleManager = new PeopleManager(clientContext);
+                PersonProperties userProperties = peopleManager.GetPropertiesFor(targetUser);
+
+                clientContext.Load(userProperties, p => p.AccountName, p => p.UserProfileProperties);
+                await clientContext.ExecuteQueryAsync();
+
+                var userProfileData = userProperties.UserProfileProperties
+                    .ToDictionary(property => property.Key.ToString(), property => property.Value.ToString());
+
+                return new OkObjectResult(JsonConvert.SerializeObject(userProfileData));
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogError($"Error: {ex.Message}");
+            return new BadRequestObjectResult("Error retrieving user profile");
+        }
+    }
+}
+
+// Helper class for authentication
+public static class AuthenticationHelper
+{
+    public static ClientContext GetAppOnlyAuthenticatedContext(string siteUrl, ClientCredential clientCredential)
+    {
+        var authority = "https://login.microsoftonline.com/your-tenant-id";
+        var authenticationContext = new AuthenticationContext(authority, false);
+
+        var authenticationResult = authenticationContext.AcquireTokenAsync(siteUrl, clientCredential).Result;
+
+        var clientContext = new ClientContext(siteUrl)
+        {
+            AuthenticationMode = ClientAuthenticationMode.Anonymous,
+            FormDigestHandlingEnabled = false
+        };
+
+        clientContext.ExecutingWebRequest += (sender, args) =>
+        {
+            args.WebRequestExecutor.RequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authenticationResult.AccessToken);
+        };
+
+        return clientContext;
+    }
+}
+
+
+////
+
+
+
 #r "Microsoft.Graph"
 #r "Newtonsoft.Json"
 
