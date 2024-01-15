@@ -17,11 +17,11 @@ class Program
         string siteUrl = configuration["SharePointOnlineSiteUrl"];
         string listName = configuration["SharePointOnlineListName"];
 
-        // Authenticate to SharePoint Online using username and password
+        // Authenticate to SharePoint Online using user credentials
         var username = configuration["Username"];
         var password = configuration["Password"];
 
-        var authenticationResult = await UsernamePasswordAuthentication(username, password, siteUrl);
+        var authenticationResult = await UserCredentialsAuthentication(username, password, siteUrl);
 
         // Create a PnPContext using the authentication result
         using (var context = await PnPCoreSdk.CreateAsync(authenticationResult))
@@ -38,17 +38,15 @@ class Program
         }
     }
 
-    static async Task<AuthenticationResult> UsernamePasswordAuthentication(string username, string password, string siteUrl)
+    static async Task<AuthenticationResult> UserCredentialsAuthentication(string username, string password, string siteUrl)
     {
         var scopes = new[] { siteUrl + "/.default" };
-        var confidentialClientApplication = ConfidentialClientApplicationBuilder
-            .Create(configuration["ClientId"])
-            .WithClientSecret(configuration["ClientSecret"])
+
+        var authenticationProvider = new PnPCoreAuthenticationProviderBuilder()
+            .UseUsernamePassword(username, password)
             .Build();
 
-        var authenticationProvider = new UsernamePasswordProvider(confidentialClientApplication, scopes, username, password);
-        var authenticationResult = await authenticationProvider.GetAccessTokenAsync();
-
+        var authenticationResult = await authenticationProvider.AuthenticateAsync(scopes);
         return authenticationResult;
     }
 }
