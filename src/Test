@@ -65,3 +65,54 @@ public static class GetUserAndDirectReportsFunction
         return directReportUsers;
     }
 }
+
+
+
+////////////////////////
+
+#r "Microsoft.Identity.Client"
+#r "Newtonsoft.Json"
+
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.Identity.Client;
+using Newtonsoft.Json;
+
+public static async Task<HttpResponseMessage> Run(HttpRequestMessage req, ILogger log)
+{
+    // Replace these values with your own
+    string clientId = "your-client-id";
+    string clientSecret = "your-client-secret";
+    string tenantId = "your-tenant-id";
+    string userId = "user-id-to-retrieve-profile"; // Replace with the user's ID
+
+    var confidentialClientApplication = ConfidentialClientApplicationBuilder
+        .Create(clientId)
+        .WithClientSecret(clientSecret)
+        .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
+        .Build();
+
+    var authResult = await confidentialClientApplication
+        .AcquireTokenForClient(new[] { "https://graph.microsoft.com/.default" })
+        .ExecuteAsync();
+
+    using (var httpClient = new HttpClient())
+    {
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+
+        var graphApiEndpoint = $"https://graph.microsoft.com/v1.0/users/{userId}";
+        var response = await httpClient.GetAsync(graphApiEndpoint);
+
+        if (response.IsSuccessStatusCode)
+        {
+            var userJson = await response.Content.ReadAsStringAsync();
+            var userProfile = JsonConvert.DeserializeObject(userJson);
+            return req.CreateResponse(System.Net.HttpStatusCode.OK, userProfile);
+        }
+        else
+        {
+            return req.CreateResponse(System.Net.HttpStatusCode.InternalServerError, "Failed to retrieve user profile.");
+        }
+    }
+}
