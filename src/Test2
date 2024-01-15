@@ -1,0 +1,93 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+public class UserProfileFunction
+{
+    private readonly IConfiguration _configuration;
+    private readonly HttpClient _httpClient;
+
+    public UserProfileFunction(IConfiguration configuration, IHttpClientFactory httpClientFactory)
+    {
+        _configuration = configuration;
+        _httpClient = httpClientFactory.CreateClient();
+    }
+
+    [Function("UserProfileFunction")]
+    public async Task<IActionResult> RunAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequestData req,
+        FunctionContext executionContext)
+    {
+        var siteUrl = _configuration["SharePoint:SiteUrl"];
+        var initialUsername = _configuration["SharePoint:InitialUsername"];
+
+        var userProfiles = await GetUserProfileAndReportees(initialUsername, siteUrl);
+
+        return new OkObjectResult(userProfiles);
+    }
+
+    private async Task<List<Dictionary<string, string>>> GetUserProfileAndReportees(string username, string siteUrl)
+    {
+        var userProfiles = new List<Dictionary<string, string>>();
+        var visitedUsers = new HashSet<string>();
+
+        await GetProfileAndReporteesRecursive(username, siteUrl, userProfiles, visitedUsers);
+
+        return userProfiles;
+    }
+
+    private async Task GetProfileAndReporteesRecursive(string username, string siteUrl, List<Dictionary<string, string>> userProfiles, HashSet<string> visitedUsers)
+    {
+        if (!visitedUsers.Contains(username))
+        {
+            visitedUsers.Add(username);
+
+            var userProfile = await GetUserProfile(username, siteUrl);
+            userProfiles.Add(userProfile);
+
+            var reportees = await GetReportees(username, siteUrl);
+            foreach (var reportee in reportees)
+            {
+                await GetProfileAndReporteesRecursive(reportee, siteUrl, userProfiles, visitedUsers);
+            }
+        }
+    }
+
+    private async Task<Dictionary<string, string>> GetUserProfile(string username, string siteUrl)
+    {
+        // Implementation of GetUserProfile remains the same as in the previous examples
+    }
+
+    private async Task<List<string>> GetReportees(string username, string siteUrl)
+    {
+        var endpointUrl = $"{siteUrl}/_api/SP.UserProfiles.PeopleManager/GetPropertiesFor(accountName=@v)?@v='i:0%23.f|membership|{username}'";
+
+        var accessToken = await GetAccessToken();
+        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
+
+        var response = await _httpClient.GetStringAsync(endpointUrl);
+        var userProfileData = JsonConvert.DeserializeObject<Dictionary<string, object>>(response);
+
+        if (userProfileData.ContainsKey("DirectReports"))
+        {
+            var directReports = userProfileData["DirectReports"] as Newtonsoft.Json.Linq.JArray;
+            if (directReports != null)
+            {
+                var reportees = directReports.ToObject<List<string>>();
+                return reportees;
+            }
+        }
+
+        return new List<string>();
+    }
+
+    private async Task<string> GetAccessToken()
+    {
+        // Implementation of GetAccessToken remains the same as in the previous examples
+    }
+}
