@@ -1,94 +1,72 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Configuration;
-using Newtonsoft.Json;
-using System.Collections.Generic;
+using System;
 using System.Net.Http;
 using System.Threading.Tasks;
-using System.IO;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.SharePoint.Client;
+using Microsoft.Identity.Client;
+using Microsoft.SharePoint.Client.UserProfiles;
 
-public static class UserProfileFunction
+namespace FunctionApp1
 {
-    private static readonly HttpClient _httpClient = new HttpClient();
-
-    [FunctionName("UserProfileFunction")]
-    public static async Task<IActionResult> RunAsync(
-        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-        ILogger log,
-        ExecutionContext context)
+    public static class SharePointFunction
     {
-        log.LogInformation("C# HTTP trigger function processed a request.");
-
-        var config = new ConfigurationBuilder()
-            .SetBasePath(context.FunctionAppDirectory)
-            .AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
-            .AddEnvironmentVariables()
-            .Build();
-
-        string username = req.Query["username"];
-        string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-        dynamic data = JsonConvert.DeserializeObject(requestBody);
-        username = username ?? data?.username;
-
-        if (string.IsNullOrEmpty(username))
+        [FunctionName("GetUserProfile")]
+        public static async Task<HttpResponseMessage> Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequestMessage req,
+            ILogger log)
         {
-            return new BadRequestObjectResult("Please provide a username in the query string or request body.");
-        }
+            log.LogInformation("C# HTTP trigger function processed a request.");
 
-        var siteUrl = config["SharePoint:SiteUrl"];
-        var userProfiles = await GetUserProfileAndReportees(username, siteUrl);
+            string siteUrl = "https://yourtenant.sharepoint.com";
+            string clientId = "your-client-id";
+            string clientSecret = "your-client-secret";
+            string tenantId = "your-tenant-id";
+            string userName = "user@yourtenant.onmicrosoft.com"; // Specify the user you want to get profile data for
 
-        return new OkObjectResult(userProfiles);
-    }
+            var context = await GetSharePointContext(siteUrl, clientId, clientSecret, tenantId);
 
-    private static async Task<List<Dictionary<string, string>>> GetUserProfileAndReportees(string username, string siteUrl)
-    {
-        var userProfiles = new List<Dictionary<string, string>>();
-        var visitedUsers = new HashSet<string>();
+            PeopleManager peopleManager = new PeopleManager(context);
+            PersonProperties personProperties = peopleManager.GetPropertiesFor(userName);
+            context.Load(personProperties);
+            await context.ExecuteQueryAsync();
 
-        await GetProfileAndReporteesRecursive(username, siteUrl, userProfiles, visitedUsers);
+            // Now you have the user's profile data in personProperties
+            // You can log or return this data as needed
 
-        return userProfiles;
-    }
-
-    private static async Task GetProfileAndReporteesRecursive(string username, string siteUrl, List<Dictionary<string, string>> userProfiles, HashSet<string> visitedUsers)
-    {
-        if (!visitedUsers.Contains(username))
-        {
-            visitedUsers.Add(username);
-
-            var userProfile = await GetUserProfile(username, siteUrl);
-            userProfiles.Add(userProfile);
-
-            var reportees = await GetReportees(username, siteUrl);
-            foreach (var reportee in reportees)
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
             {
-                await GetProfileAndReporteesRecursive(reportee, siteUrl, userProfiles, visitedUsers);
-            }
+                Content = new StringContent("User profile data retrieved successfully.")
+            };
+        }
+
+        private static async Task<ClientContext> GetSharePointContext(string siteUrl, string clientId, string clientSecret, string tenantId)
+        {
+            string authority = $"https://login.microsoftonline.com/{tenantId}/v2.0";
+
+            IConfidentialClientApplication app = ConfidentialClientApplicationBuilder.Create(clientId)
+                .WithClientSecret(clientSecret)
+                .WithAuthority(new Uri(authority))
+                .Build();
+
+            string[] scopes = new string[] { "https://graph.microsoft.com/.default" };
+
+            AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+
+            var context = new ClientContext(siteUrl);
+
+            // Corrected assignment of the event handler
+            context.ExecutingWebRequest += (sender, args) =>
+            {
+                args.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + result.AccessToken;
+            };
+
+            return context;
         }
     }
 
-    private static async Task<Dictionary<string, string>> GetUserProfile(string username, string siteUrl)
-    {
-        // Implement the logic to retrieve user profile based on the username
-        // Use the SharePoint REST API or Microsoft Graph API here
-        // Example:
-        var userProfile = new Dictionary<string, string>();
-        userProfile.Add("Username", username);
 
-        return userProfile;
-    }
+ 
 
-    private static async Task<List<string>> GetReportees(string username, string siteUrl)
-    {
-        // Implement the logic to retrieve direct reportees based on the username
-        // Use the SharePoint REST API or Microsoft Graph API here
-        // Example:
-        var reportees = new List<string> { "reportee1", "reportee2" };
-
-        return reportees;
-    }
 }
