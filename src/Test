@@ -1,3 +1,53 @@
+tets/
+//
+using System;
+using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.Utilities;
+
+class UserProfilePropertiesExample
+{
+    public static void GetTargetUserProfileProperties()
+    {
+        try
+        {
+            string siteUrl = "https://spotenant-admin.sharepoint.com";
+            string targetUser = "i:0#.f|membership|alexd@spotenant.onmicrosoft.com";
+            string clientId = "yourClientId";
+            string clientSecret = "yourClientSecret";
+
+            using (ClientContext clientContext = new AuthenticationManager().GetAppOnlyAuthenticatedContext(siteUrl, clientId, clientSecret))
+            {
+                // Get the PeopleManager object and then get the target user's properties.
+                PeopleManager peopleManager = new PeopleManager(clientContext);
+                PersonProperties userProperties = peopleManager.GetPropertiesFor(targetUser);
+
+                // This request loads the AccountName and user's all other Profile Properties.
+                clientContext.Load(userProperties, p => p.AccountName, p => p.UserProfileProperties);
+                clientContext.ExecuteQuery();
+
+                foreach (var property in userProperties.UserProfileProperties)
+                {
+                    Console.WriteLine($"{property.Key}: {property.Value}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred: {ex.Message}");
+            // Handle the exception as needed.
+        }
+    }
+
+    static void Main()
+    {
+        GetTargetUserProfileProperties();
+    }
+}
+
+
+
+
+
 ///
 using Microsoft.Identity.Client;
 using Microsoft.SharePoint.Client;
