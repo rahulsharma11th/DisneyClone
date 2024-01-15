@@ -116,3 +116,67 @@ public static async Task<HttpResponseMessage> Run(HttpRequestMessage req, ILogge
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////
+public class UserProfileFunction
+{
+    private readonly IConfiguration _configuration;
+
+    public UserProfileFunction(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    [FunctionName("GetUserProfile")]
+    public async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        log.LogInformation("C# HTTP trigger function processed a request.");
+
+        string siteUrl = _configuration["SharePointSiteUrl"];
+        string clientId = _configuration["SharePointClientId"];
+        string clientSecret = _configuration["SharePointClientSecret"];
+        string targetUser = "i:0#.f|membership|alexd@spotenant.onmicrosoft.com";
+
+        try
+        {
+            var clientCredential = new ClientCredential(clientId, clientSecret);
+
+            using (var clientContext = new AuthenticationHelper().GetAppOnlyAuthenticatedContext(siteUrl, clientCredential))
+            {
+                PeopleManager peopleManager = new PeopleManager(clientContext);
+                PersonProperties userProperties = peopleManager.GetPropertiesFor(targetUser);
+
+                clientContext.Load(userProperties, p => p.AccountName, p => p.UserProfileProperties);
+                await clientContext.ExecuteQueryAsync();
+
+                var userProfileData = userProperties.UserProfileProperties
+                    .ToDictionary(property => property.Key.ToString(), property => property.Value.ToString());
+
+                return new OkObjectResult(JsonConvert.SerializeObject(userProfileData));
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogError($"Error: {ex.Message}");
+            return new BadRequestObjectResult("Error retrieving user profile");
+        }
+    }
+}
