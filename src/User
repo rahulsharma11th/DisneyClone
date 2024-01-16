@@ -1,0 +1,95 @@
+using System;
+using System.Collections.Generic;
+using Microsoft.Graph;
+using Microsoft.Graph.Auth;
+using Microsoft.Identity.Client;
+
+class UserDetails
+{
+    public string DisplayName { get; set; }
+    public string JobTitle { get; set; }
+    public string Email { get; set; }
+    public List<string> DirectReports { get; set; }
+    public string Manager { get; set; }
+}
+
+class Program
+{
+    private static readonly string clientId = "YOUR_CLIENT_ID"; // Your Azure AD Application Client ID
+    private static readonly string clientSecret = "YOUR_CLIENT_SECRET"; // Your Azure AD Application Client Secret
+    private static readonly string tenantId = "YOUR_TENANT_ID"; // Your Azure AD Tenant ID
+    private static readonly string userPrincipalName = "user@domain.com"; // User's UPN for whom you want to retrieve data
+
+    static async System.Threading.Tasks.Task Main(string[] args)
+    {
+        IConfidentialClientApplication confidentialClientApplication = ConfidentialClientApplicationBuilder
+            .Create(clientId)
+            .WithClientSecret(clientSecret)
+            .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
+            .Build();
+
+        ClientCredentialProvider authProvider = new ClientCredentialProvider(confidentialClientApplication);
+
+        var graphServiceClient = new GraphServiceClient(authProvider);
+
+        List<UserDetails> userList = new List<UserDetails>();
+
+        try
+        {
+            // Fetch user profile
+            var user = await graphServiceClient.Users[userPrincipalName]
+                .Request()
+                .GetAsync();
+
+            UserDetails userDetails = new UserDetails
+            {
+                DisplayName = user.DisplayName,
+                JobTitle = user.JobTitle,
+                Email = user.Mail,
+                DirectReports = new List<string>(),
+                Manager = null
+            };
+
+            // Fetch direct reports
+            var directReports = await graphServiceClient.Users[user.Id].DirectReports
+                .Request()
+                .GetAsync();
+
+            if (directReports.Count > 0)
+            {
+                Console.WriteLine("\nDirect Reports:");
+                foreach (var report in directReports)
+                {
+                    userDetails.DirectReports.Add(report.DisplayName);
+                }
+            }
+            else
+            {
+                Console.WriteLine("\nNo Direct Reports");
+            }
+
+            // Fetch manager
+            var manager = await graphServiceClient.Users[user.Id].Manager
+                .Request()
+                .GetAsync();
+
+            if (manager != null)
+            {
+                userDetails.Manager = manager.DisplayName;
+            }
+            else
+            {
+                Console.WriteLine("\nNo Manager Found");
+            }
+
+            // Add user details to the list
+            userList.Add(userDetails);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred: {ex.Message}");
+        }
+
+        // You can now work with the userList containing user details as needed.
+    }
+}
