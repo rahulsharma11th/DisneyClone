@@ -6,9 +6,8 @@ using Microsoft.Graph;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using System;
-using Microsoft.Graph.Models;
 using Azure.Identity;
+using Microsoft.Graph.Models;
 
 public static class UserReporteesFunction
 {
@@ -16,26 +15,11 @@ public static class UserReporteesFunction
 
     static UserReporteesFunction()
     {
-        var clientId = "your_client_id";
-        var tenantId = "your_tenant_id";
-        var clientSecret = "your_client_secret";
-        var scopes = new[] { "https://graph.microsoft.com/.default" };
-
-        var options = new TokenCredentialOptions
-        {
-            AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-        };
-
-        // Build a client secret credential
-        var clientSecretCredential = new ClientSecretCredential(
-            tenantId, clientId, clientSecret, options);
-
-        // Initialize the GraphServiceClient
-        graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
-      //  graphServiceClient = new GraphServiceClient(/* Authentication provider here */);
+        // Initialize your GraphServiceClient here with the appropriate authentication
+        // graphServiceClient = new GraphServiceClient(/* Authentication provider here */);
     }
 
-    [FunctionName("UserReporteesFunction")]
+    [FunctionName("GetReporteesHierarchy")]
     public static async Task<IActionResult> Run(
         [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
         ILogger log)
@@ -49,43 +33,45 @@ public static class UserReporteesFunction
 
         try
         {
-            // Get current user info
-            var currentUser = await graphServiceClient.Users[userPrincipalName].GetAsync();
-            var userInfo = ExtractUserInfo(currentUser);
-            // Log current user info
-            log.LogInformation($"Current User: {userInfo.DisplayName}, {userInfo.Email}");
+            // Fetch and log the hierarchy
+            var hierarchy = await GetReporteesHierarchyAsync(userPrincipalName, log);
 
-            // Get reportees
-            var directReports = await graphServiceClient.Users[userPrincipalName].DirectReports
-                .GetAsync();
-             var directReportsVal = directReports.Value;
-
-            var reporteesInfo = new List<UserInfo>();
-            foreach (var reportee in directReportsVal)
-            {
-                if (reportee is User user)
-                {
-                    var reporteeUserInfo = ExtractUserInfo(user);
-                    reporteesInfo.Add(reporteeUserInfo);
-                    log.LogInformation($"Reportee: {reporteeUserInfo.DisplayName}, {reporteeUserInfo.Email}");
-                }
-            }
-
-            return new OkObjectResult(new { User = userInfo, Reportees = reporteesInfo });
+            return new OkObjectResult(hierarchy);
         }
         catch (ServiceException ex)
         {
             log.LogError($"Error retrieving user information: {ex.Message}");
             return new StatusCodeResult(500);
         }
-        catch (Exception ex)
-        {
-            log.LogError($"An error occurred: {ex.Message}");
-            return new StatusCodeResult(500);
-        }
     }
-   
-  
+
+    private static async Task<UserHierarchy> GetReporteesHierarchyAsync(string userPrincipalName, ILogger log)
+    {
+        var user = await graphServiceClient.Users[userPrincipalName].GetAsync();
+        var userInfo = ExtractUserInfo(user);
+
+        // Fetch the direct reportees
+        var directReports = await graphServiceClient.Users[userPrincipalName].DirectReports
+            .GetAsync();
+        var directReportsVal = directReports.Value;
+        var reporteesInfo = new List<UserInfo>();
+        foreach (var reportee in directReportsVal)
+        {
+            if (reportee is User reporteeUser)
+            {
+                var reporteeHierarchy = await GetReporteesHierarchyAsync(reporteeUser.UserPrincipalName, log);
+                reporteesInfo.Add(reporteeHierarchy.UserInfo);
+                reporteesInfo.AddRange(reporteeHierarchy.Reportees);
+            }
+        }
+
+        return new UserHierarchy
+        {
+            UserInfo = userInfo,
+            Reportees = reporteesInfo
+        };
+    }
+
     private static UserInfo ExtractUserInfo(User user)
     {
         return new UserInfo
@@ -100,6 +86,12 @@ public static class UserReporteesFunction
             UserPrincipalName = user.UserPrincipalName
         };
     }
+}
+
+public class UserHierarchy
+{
+    public UserInfo UserInfo { get; set; }
+    public List<UserInfo> Reportees { get; set; }
 }
 
 public class UserInfo
