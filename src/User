@@ -1,95 +1,115 @@
-using System;
-using System.Collections.Generic;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Graph;
-using Microsoft.Graph.Auth;
-using Microsoft.Identity.Client;
+using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System;
+using Microsoft.Graph.Models;
+using Azure.Identity;
 
-class UserDetails
+public static class UserReporteesFunction
 {
-    public string DisplayName { get; set; }
-    public string JobTitle { get; set; }
-    public string Email { get; set; }
-    public List<string> DirectReports { get; set; }
-    public string Manager { get; set; }
-}
+    private static GraphServiceClient graphServiceClient;
 
-class Program
-{
-    private static readonly string clientId = "YOUR_CLIENT_ID"; // Your Azure AD Application Client ID
-    private static readonly string clientSecret = "YOUR_CLIENT_SECRET"; // Your Azure AD Application Client Secret
-    private static readonly string tenantId = "YOUR_TENANT_ID"; // Your Azure AD Tenant ID
-    private static readonly string userPrincipalName = "user@domain.com"; // User's UPN for whom you want to retrieve data
-
-    static async System.Threading.Tasks.Task Main(string[] args)
+    static UserReporteesFunction()
     {
-        IConfidentialClientApplication confidentialClientApplication = ConfidentialClientApplicationBuilder
-            .Create(clientId)
-            .WithClientSecret(clientSecret)
-            .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
-            .Build();
+        var clientId = "your_client_id";
+        var tenantId = "your_tenant_id";
+        var clientSecret = "your_client_secret";
+        var scopes = new[] { "https://graph.microsoft.com/.default" };
 
-        ClientCredentialProvider authProvider = new ClientCredentialProvider(confidentialClientApplication);
+        var options = new TokenCredentialOptions
+        {
+            AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+        };
 
-        var graphServiceClient = new GraphServiceClient(authProvider);
+        // Build a client secret credential
+        var clientSecretCredential = new ClientSecretCredential(
+            tenantId, clientId, clientSecret, options);
 
-        List<UserDetails> userList = new List<UserDetails>();
+        // Initialize the GraphServiceClient
+        graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
+      //  graphServiceClient = new GraphServiceClient(/* Authentication provider here */);
+    }
+
+    [FunctionName("UserReporteesFunction")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        string userPrincipalName = req.Query["userPrincipalName"];
+
+        if (string.IsNullOrEmpty(userPrincipalName))
+        {
+            return new BadRequestObjectResult("UserPrincipalName must be provided.");
+        }
 
         try
         {
-            // Fetch user profile
-            var user = await graphServiceClient.Users[userPrincipalName]
-                .Request()
+            // Get current user info
+            var currentUser = await graphServiceClient.Users[userPrincipalName].GetAsync();
+            var userInfo = ExtractUserInfo(currentUser);
+            // Log current user info
+            log.LogInformation($"Current User: {userInfo.DisplayName}, {userInfo.Email}");
+
+            // Get reportees
+            var directReports = await graphServiceClient.Users[userPrincipalName].DirectReports
                 .GetAsync();
+             var directReportsVal = directReports.Value;
 
-            UserDetails userDetails = new UserDetails
+            var reporteesInfo = new List<UserInfo>();
+            foreach (var reportee in directReportsVal)
             {
-                DisplayName = user.DisplayName,
-                JobTitle = user.JobTitle,
-                Email = user.Mail,
-                DirectReports = new List<string>(),
-                Manager = null
-            };
-
-            // Fetch direct reports
-            var directReports = await graphServiceClient.Users[user.Id].DirectReports
-                .Request()
-                .GetAsync();
-
-            if (directReports.Count > 0)
-            {
-                Console.WriteLine("\nDirect Reports:");
-                foreach (var report in directReports)
+                if (reportee is User user)
                 {
-                    userDetails.DirectReports.Add(report.DisplayName);
+                    var reporteeUserInfo = ExtractUserInfo(user);
+                    reporteesInfo.Add(reporteeUserInfo);
+                    log.LogInformation($"Reportee: {reporteeUserInfo.DisplayName}, {reporteeUserInfo.Email}");
                 }
             }
-            else
-            {
-                Console.WriteLine("\nNo Direct Reports");
-            }
 
-            // Fetch manager
-            var manager = await graphServiceClient.Users[user.Id].Manager
-                .Request()
-                .GetAsync();
-
-            if (manager != null)
-            {
-                userDetails.Manager = manager.DisplayName;
-            }
-            else
-            {
-                Console.WriteLine("\nNo Manager Found");
-            }
-
-            // Add user details to the list
-            userList.Add(userDetails);
+            return new OkObjectResult(new { User = userInfo, Reportees = reporteesInfo });
+        }
+        catch (ServiceException ex)
+        {
+            log.LogError($"Error retrieving user information: {ex.Message}");
+            return new StatusCodeResult(500);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"An error occurred: {ex.Message}");
+            log.LogError($"An error occurred: {ex.Message}");
+            return new StatusCodeResult(500);
         }
-
-        // You can now work with the userList containing user details as needed.
     }
+   
+  
+    private static UserInfo ExtractUserInfo(User user)
+    {
+        return new UserInfo
+        {
+            DisplayName = user.DisplayName,
+            GivenName = user.GivenName,
+            JobTitle = user.JobTitle,
+            Email = user.Mail,
+            MobilePhone = user.MobilePhone,
+            OfficeLocation = user.OfficeLocation,
+            PreferredLanguage = user.PreferredLanguage,
+            UserPrincipalName = user.UserPrincipalName
+        };
+    }
+}
+
+public class UserInfo
+{
+    public string DisplayName { get; set; }
+    public string GivenName { get; set; }
+    public string JobTitle { get; set; }
+    public string Email { get; set; }
+    public string MobilePhone { get; set; }
+    public string OfficeLocation { get; set; }
+    public string PreferredLanguage { get; set; }
+    public string UserPrincipalName { get; set; }
 }
