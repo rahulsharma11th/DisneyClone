@@ -3,6 +3,114 @@ using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.SharePoint.Client;
+using Microsoft.Identity.Client;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using System;
+
+public static class SharePointProfileFunction
+{
+    private static string tenantId = "YourTenantId";
+    private static string clientId = "YourClientId";
+    private static string clientSecret = "YourClientSecret";
+    private static string siteUrl = "https://yourtenant.sharepoint.com/sites/yoursite";
+
+    [FunctionName("GetSharePointUserProfile")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        string userPrincipalName = req.Query["userPrincipalName"];
+        if (string.IsNullOrEmpty(userPrincipalName))
+        {
+            return new BadRequestObjectResult("UserPrincipalName must be provided.");
+        }
+
+        try
+        {
+            var accessToken = await GetAccessToken();
+            using (var clientContext = new ClientContext(siteUrl))
+            {
+                clientContext.ExecutingWebRequest += (sender, args) =>
+                {
+                    args.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + accessToken;
+                };
+
+                // Fetch the SharePoint user profile
+                var userProfile = GetUserProfile(clientContext, userPrincipalName);
+                return new OkObjectResult(userProfile);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogError($"Error retrieving user profile from SharePoint: {ex.Message}");
+            return new StatusCodeResult(500);
+        }
+    }
+
+    private static async Task<string> GetAccessToken()
+    {
+        IConfidentialClientApplication app = ConfidentialClientApplicationBuilder.Create(clientId)
+            .WithClientSecret(clientSecret)
+            .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}/v2.0"))
+            .Build();
+
+        string[] scopes = { "https://graph.microsoft.com/.default" };
+
+        AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+        return result.AccessToken;
+    }
+
+    private static UserProfile GetUserProfile(ClientContext clientContext, string userPrincipalName)
+    {
+        var user = clientContext.Web.SiteUsers.GetByEmail(userPrincipalName);
+        clientContext.Load(user);
+        clientContext.ExecuteQuery();
+
+        return new UserProfile
+        {
+            Email = user.Email,
+            DisplayName = user.Title,
+            LoginName = user.LoginName
+            // Add more properties as needed
+        };
+    }
+}
+
+public class UserProfile
+{
+    public string Email { get; set; }
+    public string DisplayName { get; set; }
+    public string LoginName { get; set; }
+    // Add more properties as needed
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////
+
+
+
+
+
+
+///using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.SharePoint.Client;
 using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
