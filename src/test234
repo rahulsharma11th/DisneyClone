@@ -1,0 +1,63 @@
+using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.UserProfiles;
+using Microsoft.Identity.Client;
+using System;
+using System.Threading.Tasks;
+
+namespace SharePointCSOMExample
+{
+    class Program
+    {
+        private static string tenantId = "YourTenantId";
+        private static string clientId = "YourClientId";
+        private static string clientSecret = "YourClientSecret";
+        private static string siteUrl = "https://yourtenant.sharepoint.com";
+
+        static async Task Main(string[] args)
+        {
+            try
+            {
+                var clientContext = await GetAuthenticatedContext();
+                string targetUserLoginName = "user@yourtenant.onmicrosoft.com"; // Replace with the user's login name
+                await GetUserProfileProperties(clientContext, targetUserLoginName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+
+        private static async Task<ClientContext> GetAuthenticatedContext()
+        {
+            var cca = ConfidentialClientApplicationBuilder.Create(clientId)
+                .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}"))
+                .WithClientSecret(clientSecret)
+                .Build();
+
+            var result = await cca.AcquireTokenForClient(new[] { $"{siteUrl}/.default" }).ExecuteAsync();
+
+            var context = new ClientContext(siteUrl);
+            context.ExecutingWebRequest += (sender, e) =>
+            {
+                e.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + result.AccessToken;
+            };
+
+            return context;
+        }
+
+        private static async Task GetUserProfileProperties(ClientContext clientContext, string targetUserLoginName)
+        {
+            PeopleManager peopleManager = new PeopleManager(clientContext);
+            PersonProperties personProperties = peopleManager.GetPropertiesFor(targetUserLoginName);
+
+            clientContext.Load(personProperties, p => p.AccountName, p => p.UserProfileProperties);
+            await clientContext.ExecuteQueryAsync();
+
+            Console.WriteLine($"Profile for {personProperties.AccountName}:");
+            foreach (var property in personProperties.UserProfileProperties)
+            {
+                Console.WriteLine($"{property.Key}: {property.Value}");
+            }
+        }
+    }
+}
