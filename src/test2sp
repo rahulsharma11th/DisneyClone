@@ -1,0 +1,81 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.SharePoint.Client;
+using System.Security;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using System;
+
+public static class UserReporteesFunction
+{
+    private static ClientContext context;
+
+    static UserReporteesFunction()
+    {
+        string siteUrl = "https://yourtenant.sharepoint.com";
+        string clientId = "your-client-id";
+        string clientSecret = "your-client-secret";
+        var securePassword = new SecureString();
+        foreach (char c in clientSecret)
+        {
+            securePassword.AppendChar(c);
+        }
+        context = new ClientContext(siteUrl);
+        context.Credentials = new SharePointOnlineCredentials(clientId, securePassword);
+    }
+
+    [FunctionName("GetSharePointUserProfile")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        string userPrincipalName = req.Query["userPrincipalName"];
+
+        if (string.IsNullOrEmpty(userPrincipalName))
+        {
+            return new BadRequestObjectResult("UserPrincipalName must be provided.");
+        }
+
+        try
+        {
+            var userProfile = await GetSharePointUserProfileAsync(userPrincipalName, log);
+            return new OkObjectResult(userProfile);
+        }
+        catch (Exception ex)
+        {
+            log.LogError($"Error retrieving user profile from SharePoint: {ex.Message}");
+            return new StatusCodeResult(500);
+        }
+    }
+
+    private static async Task<UserProfileInfo> GetSharePointUserProfileAsync(string userPrincipalName, ILogger log)
+    {
+        // Ensure the context is loaded
+        context.Load(context.Web, w => w.SiteUsers);
+        await context.ExecuteQueryAsync();
+
+        // Fetch user profile
+        var user = context.Web.SiteUsers.GetByEmail(userPrincipalName);
+        context.Load(user);
+        await context.ExecuteQueryAsync();
+
+        // Return user profile information
+        return new UserProfileInfo
+        {
+            Email = user.Email,
+            DisplayName = user.Title,
+            LoginName = user.LoginName
+            // Add more properties as needed
+        };
+    }
+}
+
+public class UserProfileInfo
+{
+    public string Email { get; set; }
+    public string DisplayName { get; set; }
+    public string LoginName { get; set; }
+    // Add more properties as needed
+}
