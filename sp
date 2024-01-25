@@ -23,6 +23,12 @@ namespace SharePointFunctionApp
             string clientId = Environment.GetEnvironmentVariable("SharePointClientId");
             string clientSecret = Environment.GetEnvironmentVariable("SharePointClientSecret");
 
+            string accountName = req.Query["accountName"];
+            if (string.IsNullOrEmpty(accountName))
+            {
+                return new BadRequestObjectResult("Please pass an accountName on the query string or in the request body");
+            }
+
             try
             {
                 using (ClientContext context = new ClientContext(siteUrl))
@@ -36,12 +42,14 @@ namespace SharePointFunctionApp
                     context.AuthenticationMode = ClientAuthenticationMode.AppOnly;
                     context.Credentials = new SharePointOnlineCredentials(clientId, secureString);
 
-                    // Example SharePoint operation: Load web title
-                    Web web = context.Web;
-                    context.Load(web);
+                    // Get the user profile
+                    PeopleManager peopleManager = new PeopleManager(context);
+                    PersonProperties personProperties = peopleManager.GetPropertiesFor(accountName);
+                    context.Load(personProperties);
                     await context.ExecuteQueryAsync();
 
-                    return new OkObjectResult($"SharePoint site title: {web.Title}");
+                    // Extracting and returning user profile properties
+                    return new OkObjectResult($"User profile for {accountName}: {personProperties.DisplayName}, {personProperties.Email}");
                 }
             }
             catch (Exception ex)
