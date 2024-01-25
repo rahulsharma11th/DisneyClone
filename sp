@@ -1,85 +1,70 @@
-using System;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using Microsoft.SharePoint.Client;
-using System.Net.Http;
-using System.Collections.Generic;
-using System.Text.Json.Serialization;
+using Azure.Identity;
+using System;
+using Microsoft.SharePoint.Client.UserProfiles;
+using System.Net;
 
-namespace SharePointFunctionApp
+class SharePointOnlineCredentials : ICredentials
 {
-    public static class GetSharePointSiteDetails
+    private ClientSecretCredential _clientSecretCredential;
+
+    public SharePointOnlineCredentials(string clientId, string clientSecret, string tenantId)
     {
-        [FunctionName("GetSharePointSiteDetails")]
-        public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            ILogger log)
+        _clientSecretCredential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    }
+
+    public System.Net.NetworkCredential GetCredential(Uri uri, string authType)
+    {
+        // Return null for the NetworkCredential part as it's not used.
+        return null;
+    }
+}
+
+class Program
+{
+    static async System.Threading.Tasks.Task Main(string[] args)
+    {
+        string siteUrl = "https://yourtenant.sharepoint.com/sites/yoursite";
+        string clientId = "your-client-id";
+        string clientSecret = "your-client-secret";
+        string tenantId = "your-tenant-id";
+
+        // Specify the email address for the user you want to retrieve information for
+        string userEmail = "user@example.com"; // Replace with the user's email
+
+        var spCredentials = new SharePointOnlineCredentials(clientId, clientSecret, tenantId);
+
+        using (var context = new ClientContext(siteUrl))
         {
-            log.LogInformation("C# HTTP trigger function processed a request.");
+            context.Credentials = spCredentials;
 
-            string siteUrl = Environment.GetEnvironmentVariable("SharePointSiteUrl");
-            string tenantId = Environment.GetEnvironmentVariable("TenantId");
-            string clientId = Environment.GetEnvironmentVariable("SharePointClientId");
-            string clientSecret = Environment.GetEnvironmentVariable("SharePointClientSecret");
-
-            string accessToken = await GetAppOnlyAccessToken(tenantId, clientId, clientSecret, $"https://{tenantId}.sharepoint.com");
-            if (string.IsNullOrEmpty(accessToken))
-            {
-                return new BadRequestObjectResult("Unable to obtain access token.");
-            }
+            Web web = context.Web;
+            context.Load(web);
 
             try
             {
-                using (ClientContext context = new ClientContext(siteUrl))
-                {
-                    context.ExecutingWebRequest += (sender, e) =>
-                    {
-                        e.WebRequestExecutor.WebRequest.Headers["Authorization"] = "Bearer " + accessToken;
-                    };
+                await context.ExecuteQueryAsync();
 
-                    // Perform operations with SharePoint Online
-                    Web web = context.Web;
-                    context.Load(web);
-                    await context.ExecuteQueryAsync();
+                // Get user profile properties for the specified email address
+                var peopleManager = new PeopleManager(context);
+                var userProfileProperties = peopleManager.GetPropertiesFor(userEmail);
 
-                    return new OkObjectResult($"SharePoint site title: {web.Title}");
-                }
+                await context.ExecuteQueryAsync();
+
+                Console.WriteLine("Web Title: " + web.Title);
+                Console.WriteLine($"User Profile Data for {userEmail}:");
+
+                // Access and print specific profile properties
+                Console.WriteLine($"Display Name: {userProfileProperties.DisplayName}");
+                Console.WriteLine($"Email: {userProfileProperties.Email}");
+                Console.WriteLine($"Job Title: {userProfileProperties.Title}");
+                // Access other properties as needed
+
             }
             catch (Exception ex)
             {
-                log.LogError($"Exception occurred: {ex.Message}");
-                return new BadRequestObjectResult($"Error occurred: {ex.Message}");
+                Console.WriteLine("Error: " + ex.Message);
             }
-        }
-
-        private static async Task<string> GetAppOnlyAccessToken(string tenantId, string clientId, string clientSecret, string resource)
-        {
-            using (var client = new HttpClient())
-            {
-                var values = new Dictionary<string, string>
-                {
-                    {"grant_type", "client_credentials"},
-                    {"client_id", clientId},
-                    {"client_secret", clientSecret},
-                    {"resource", resource}
-                };
-
-                var content = new FormUrlEncodedContent(values);
-                var response = await client.PostAsync($"https://accounts.accesscontrol.windows.net/{tenantId}/tokens/OAuth/2", content);
-                var responseString = await response.Content.ReadAsStringAsync();
-                var tokenResponse = System.Text.Json.JsonSerializer.Deserialize<TokenResponse>(responseString);
-                return tokenResponse?.AccessToken;
-            }
-        }
-
-        private class TokenResponse
-        {
-            [JsonPropertyName("access_token")]
-            public string AccessToken { get; set; }
         }
     }
 }
