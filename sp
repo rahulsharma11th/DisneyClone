@@ -6,13 +6,15 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.SharePoint.Client;
-using System.Security;
+using System.Net.Http;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace SharePointFunctionApp
 {
-    public static class GetUserProfile
+    public static class GetSharePointSiteDetails
     {
-        [FunctionName("GetUserProfile")]
+        [FunctionName("GetSharePointSiteDetails")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
             ILogger log)
@@ -20,36 +22,31 @@ namespace SharePointFunctionApp
             log.LogInformation("C# HTTP trigger function processed a request.");
 
             string siteUrl = Environment.GetEnvironmentVariable("SharePointSiteUrl");
+            string tenantId = Environment.GetEnvironmentVariable("TenantId");
             string clientId = Environment.GetEnvironmentVariable("SharePointClientId");
             string clientSecret = Environment.GetEnvironmentVariable("SharePointClientSecret");
 
-            string accountName = req.Query["accountName"];
-            if (string.IsNullOrEmpty(accountName))
+            string accessToken = await GetAppOnlyAccessToken(tenantId, clientId, clientSecret, $"https://{tenantId}.sharepoint.com");
+            if (string.IsNullOrEmpty(accessToken))
             {
-                return new BadRequestObjectResult("Please pass an accountName on the query string or in the request body");
+                return new BadRequestObjectResult("Unable to obtain access token.");
             }
 
             try
             {
                 using (ClientContext context = new ClientContext(siteUrl))
                 {
-                    SecureString secureString = new SecureString();
-                    foreach (char c in clientSecret)
+                    context.ExecutingWebRequest += (sender, e) =>
                     {
-                        secureString.AppendChar(c);
-                    }
+                        e.WebRequestExecutor.WebRequest.Headers["Authorization"] = "Bearer " + accessToken;
+                    };
 
-                    context.AuthenticationMode = ClientAuthenticationMode.AppOnly;
-                    context.Credentials = new SharePointOnlineCredentials(clientId, secureString);
-
-                    // Get the user profile
-                    PeopleManager peopleManager = new PeopleManager(context);
-                    PersonProperties personProperties = peopleManager.GetPropertiesFor(accountName);
-                    context.Load(personProperties);
+                    // Perform operations with SharePoint Online
+                    Web web = context.Web;
+                    context.Load(web);
                     await context.ExecuteQueryAsync();
 
-                    // Extracting and returning user profile properties
-                    return new OkObjectResult($"User profile for {accountName}: {personProperties.DisplayName}, {personProperties.Email}");
+                    return new OkObjectResult($"SharePoint site title: {web.Title}");
                 }
             }
             catch (Exception ex)
@@ -57,6 +54,32 @@ namespace SharePointFunctionApp
                 log.LogError($"Exception occurred: {ex.Message}");
                 return new BadRequestObjectResult($"Error occurred: {ex.Message}");
             }
+        }
+
+        private static async Task<string> GetAppOnlyAccessToken(string tenantId, string clientId, string clientSecret, string resource)
+        {
+            using (var client = new HttpClient())
+            {
+                var values = new Dictionary<string, string>
+                {
+                    {"grant_type", "client_credentials"},
+                    {"client_id", clientId},
+                    {"client_secret", clientSecret},
+                    {"resource", resource}
+                };
+
+                var content = new FormUrlEncodedContent(values);
+                var response = await client.PostAsync($"https://accounts.accesscontrol.windows.net/{tenantId}/tokens/OAuth/2", content);
+                var responseString = await response.Content.ReadAsStringAsync();
+                var tokenResponse = System.Text.Json.JsonSerializer.Deserialize<TokenResponse>(responseString);
+                return tokenResponse?.AccessToken;
+            }
+        }
+
+        private class TokenResponse
+        {
+            [JsonPropertyName("access_token")]
+            public string AccessToken { get; set; }
         }
     }
 }
