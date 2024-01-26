@@ -58,3 +58,54 @@ namespace SharePointUserProfileRetrieval
         }
     }
 }
+
+/////////////////
+
+
+using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.UserProfiles;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace SharePointProfileRetrieval
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            string siteUrl = "https://yourtenant.sharepoint.com";
+            string userName = "user@yourtenant.com"; // Main user's email address
+
+            using (var context = new ClientContext(siteUrl))
+            {
+                // Assuming context is already authenticated
+                await FetchUserProfileAndReports(context, userName, 0);
+            }
+        }
+
+        static async Task FetchUserProfileAndReports(ClientContext context, string accountName, int level)
+        {
+            PeopleManager peopleManager = new PeopleManager(context);
+            PersonProperties personProperties = peopleManager.GetPropertiesFor(accountName);
+
+            context.Load(personProperties, p => p.DirectReports, p => p.DisplayName, p => p.Email, p => p.Title, p => p.UserProfileProperties);
+            await context.ExecuteQueryAsync();
+
+            // Print user profile
+            string indent = new String(' ', level * 2);
+            Console.WriteLine($"{indent}Name: {personProperties.DisplayName}");
+            Console.WriteLine($"{indent}Email: {personProperties.Email}");
+            Console.WriteLine($"{indent}Job Title: {personProperties.Title}");
+            // Add more properties as needed
+
+            // Fetch and print direct reports
+            foreach (var report in personProperties.DirectReports)
+            {
+                // Assuming report.Email contains the account name
+                await FetchUserProfileAndReports(context, report.Email, level + 1);
+            }
+        }
+    }
+}
+
