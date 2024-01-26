@@ -1,69 +1,59 @@
 using Microsoft.SharePoint.Client;
-using Azure.Identity;
+using Microsoft.Identity.Client;
 using System;
-using Microsoft.SharePoint.Client.UserProfiles;
-using System.Net;
+using System.Threading.Tasks;
 
-class SharePointOnlineCredentials : ICredentials
+namespace SharePointUserProfileRetrieval
 {
-    private ClientSecretCredential _clientSecretCredential;
-
-    public SharePointOnlineCredentials(string clientId, string clientSecret, string tenantId)
+    class Program
     {
-        _clientSecretCredential = new ClientSecretCredential(tenantId, clientId, clientSecret);
-    }
-
-    public System.Net.NetworkCredential GetCredential(Uri uri, string authType)
-    {
-        // Return null for the NetworkCredential part as it's not used.
-        return null;
-    }
-}
-
-class Program
-{
-    static async System.Threading.Tasks.Task Main(string[] args)
-    {
-        string siteUrl = "https://yourtenant.sharepoint.com/sites/yoursite";
-        string clientId = "your-client-id";
-        string clientSecret = "your-client-secret";
-        string tenantId = "your-tenant-id";
-
-        // Specify the email address for the user you want to retrieve information for
-        string userEmail = "user@example.com"; // Replace with the user's email
-
-        var spCredentials = new SharePointOnlineCredentials(clientId, clientSecret, tenantId);
-
-        using (var context = new ClientContext(siteUrl))
+        static async Task Main(string[] args)
         {
-            context.Credentials = spCredentials;
+            // Azure AD app registration details and SharePoint site URL
+            string clientId = "your-client-id";
+            string tenantId = "your-tenant-id";
+            string clientSecret = "your-client-secret";
+            string siteUrl = "https://yourtenant.sharepoint.com";
+            string userEmail = "user-email@yourtenant.com"; // User email to fetch profile
 
-            Web web = context.Web;
-            context.Load(web);
+            // Get access token
+            var accessToken = await GetAccessToken(clientId, tenantId, clientSecret);
 
-            try
+            // Fetch user profile
+            await FetchUserProfile(siteUrl, accessToken, userEmail);
+        }
+
+        static async Task<string> GetAccessToken(string clientId, string tenantId, string clientSecret)
+        {
+            IConfidentialClientApplication app = ConfidentialClientApplicationBuilder
+                .Create(clientId)
+                .WithClientSecret(clientSecret)
+                .WithAuthority(new Uri($"https://login.microsoftonline.com/{tenantId}/v2.0"))
+                .Build();
+
+            var scopes = new string[] { "https://graph.microsoft.com/.default" };
+            AuthenticationResult result = await app.AcquireTokenForClient(scopes).ExecuteAsync();
+            return result.AccessToken;
+        }
+
+        static async Task FetchUserProfile(string siteUrl, string accessToken, string userEmail)
+        {
+            using (var context = new ClientContext(siteUrl))
             {
+                context.ExecutingWebRequest += (sender, e) =>
+                {
+                    e.WebRequestExecutor.RequestHeaders["Authorization"] = "Bearer " + accessToken;
+                };
+
+                PeopleManager peopleManager = new PeopleManager(context);
+                PersonProperties personProperties = peopleManager.GetPropertiesFor(userEmail);
+
+                context.Load(personProperties);
                 await context.ExecuteQueryAsync();
 
-                // Get user profile properties for the specified email address
-                var peopleManager = new PeopleManager(context);
-                var userProfileProperties = peopleManager.GetPropertiesFor(userEmail);
-
-                await context.ExecuteQueryAsync();
-
-                Console.WriteLine("Web Title: " + web.Title);
-                Console.WriteLine($"User Profile Data for {userEmail}:");
-
-                // Access and print specific profile properties
-                Console.WriteLine($"Display Name: {userProfileProperties.DisplayName}");
-                Console.WriteLine($"Email: {userProfileProperties.Email}");
-                Console.WriteLine($"Job Title: {userProfileProperties.Title}");
-                // Access other properties as needed
-
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error: " + ex.Message);
+                // Here you can access various user profile properties
+                Console.WriteLine("User Display Name: " + personProperties.DisplayName);
+                // Add more properties as needed
             }
         }
     }
