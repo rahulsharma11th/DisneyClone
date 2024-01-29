@@ -1,0 +1,73 @@
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.UserProfiles;
+using System.Threading.Tasks;
+using System.Net.Http;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+
+public static class SharePointProfileFunction
+{
+    [FunctionName("FetchSharePointProfile")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", Route = null)] HttpRequest req,
+        ILogger log)
+    {
+        log.LogInformation("C# HTTP trigger function processed a request.");
+
+        string siteUrl = "https://yourtenant.sharepoint.com";
+        string userName = req.Query["user"];
+
+        if (string.IsNullOrEmpty(userName))
+        {
+            return new BadRequestObjectResult("Please pass a user name on the query string");
+        }
+
+        using (var context = new ClientContext(siteUrl))
+        {
+            // Add code here to authenticate with SharePoint
+            // ...
+
+            var userProfile = await FetchUserProfileAndReports(context, userName, 0);
+            return new OkObjectResult(userProfile);
+        }
+    }
+
+    private static async Task<List<UserProfileInfo>> FetchUserProfileAndReports(ClientContext context, string accountName, int level)
+    {
+        PeopleManager peopleManager = new PeopleManager(context);
+        PersonProperties personProperties = peopleManager.GetPropertiesFor(accountName);
+
+        context.Load(personProperties, p => p.DirectReports, p => p.DisplayName, p => p.Email, p => p.Title);
+        await context.ExecuteQueryAsync();
+
+        var userProfile = new UserProfileInfo
+        {
+            Name = personProperties.DisplayName,
+            Email = personProperties.Email,
+            Title = personProperties.Title,
+            Level = level,
+            DirectReports = new List<UserProfileInfo>()
+        };
+
+        foreach (var report in personProperties.DirectReports)
+        {
+            var directReportProfiles = await FetchUserProfileAndReports(context, report.Email, level + 1);
+            userProfile.DirectReports.AddRange(directReportProfiles);
+        }
+
+        return new List<UserProfileInfo> { userProfile };
+    }
+}
+
+public class UserProfileInfo
+{
+    public string Name { get; set; }
+    public string Email { get; set; }
+    public string Title { get; set; }
+    public int Level { get; set; }
+    public List<UserProfileInfo> DirectReports { get; set; }
+}
