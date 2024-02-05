@@ -1,0 +1,55 @@
+import { Client } from '@microsoft/microsoft-graph-client';
+
+// Assuming you have set up authentication and obtained an access token
+const accessToken = 'YOUR_ACCESS_TOKEN';
+
+const client = Client.init({
+  authProvider: (done) => {
+    done(null, accessToken); // First parameter takes an error if you want to pass one
+  },
+});
+
+interface UserInfo {
+  displayName: string;
+  givenName: string;
+  jobTitle: string;
+  email: string;
+  mobilePhone: string;
+  officeLocation: string;
+  preferredLanguage: string;
+  userPrincipalName: string;
+}
+
+interface UserHierarchy {
+  userInfo: UserInfo;
+  reportees: UserInfo[];
+}
+
+async function getReporteesHierarchy(userPrincipalName: string): Promise<UserHierarchy> {
+  const user = await client.api(`/users/${userPrincipalName}`).get();
+
+  const userInfo: UserInfo = {
+    displayName: user.displayName,
+    givenName: user.givenName,
+    jobTitle: user.jobTitle,
+    email: user.mail,
+    mobilePhone: user.mobilePhone,
+    officeLocation: user.officeLocation,
+    preferredLanguage: user.preferredLanguage,
+    userPrincipalName: user.userPrincipalName,
+  };
+
+  const directReportsResponse = await client.api(`/users/${userPrincipalName}/directReports`).get();
+  const directReports: UserInfo[] = [];
+
+  for (const reportee of directReportsResponse.value) {
+    if (reportee["@odata.type"] === "#microsoft.graph.user") {
+      const reporteeHierarchy = await getReporteesHierarchy(reportee.userPrincipalName);
+      directReports.push(reporteeHierarchy.userInfo, ...reporteeHierarchy.reportees);
+    }
+  }
+
+  return { userInfo, reportees: directReports };
+}
+
+export default getReporteesHierarchy;
