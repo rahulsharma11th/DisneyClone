@@ -65,3 +65,61 @@ const UserReporteeInfo: React.FunctionComponent<IUserReporteeInfoProps> = (props
 };
 
 export default UserReporteeInfo;
+
+
+/////////////////
+
+
+
+
+
+
+
+
+
+
+export interface IYourWebPartProps {
+  userId: string;
+}
+
+export default class YourWebPart extends BaseClientSideWebPart<IYourWebPartProps> {
+  public render(): void {
+    this.context.msGraphClientFactory
+      .getClient()
+      .then((graphClient: MSGraphClient) => {
+        const element: React.ReactElement<IUserReporteeInfoProps> = React.createElement(
+          UserReporteeInfo,
+          {
+            graphClient: graphClient,
+            userId: this.properties.userId
+          }
+        );
+
+        ReactDom.render(element, this.domElement);
+      });
+  }
+
+  protected get dataVersion(): Version {
+    return Version.parse('1.0');
+  }
+
+  protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    return {
+      pages: [
+        {
+          header: { description: "Web Part Configuration" },
+          groups: [
+            {
+              groupName: "Settings",
+              groupFields: [
+                PropertyPaneTextField('userId', {
+                  label: "User ID"
+                })
+              ]
+            }
+          ]
+        }
+      ]
+    };
+  }
+}
