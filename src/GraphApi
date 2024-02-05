@@ -1,0 +1,67 @@
+import * as React from 'react';
+import { MSGraphClient } from '@microsoft/sp-http';
+import { useEffect, useState } from 'react';
+
+export interface IUserReporteeInfoProps {
+  graphClient: MSGraphClient;
+  userId: string;
+}
+
+export interface IUserReportee {
+  id: string;
+  displayName: string;
+  jobTitle: string;
+  mail: string;
+  reportees?: IUserReportee[];
+}
+
+const UserReporteeInfo: React.FunctionComponent<IUserReporteeInfoProps> = (props) => {
+  const [reportees, setReportees] = useState<IUserReportee[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    fetchReportees(props.userId)
+      .then(fetchedReportees => {
+        setReportees(fetchedReportees);
+        setIsLoading(false);
+      });
+  }, [props.userId]);
+
+  const fetchReportees = async (userId: string): Promise<IUserReportee[]> => {
+    try {
+      const response = await props.graphClient.api(`/users/${userId}/directReports`).version('v1.0').get();
+      const fetchedReportees: IUserReportee[] = response.value;
+
+      for (let reportee of fetchedReportees) {
+        reportee.reportees = await fetchReportees(reportee.id);
+      }
+
+      return fetchedReportees;
+    } catch (error) {
+      console.error("Error fetching reportees: ", error);
+      return [];
+    }
+  };
+
+  const renderReportees = (reportees: IUserReportee[]): JSX.Element => {
+    return (
+      <ul>
+        {reportees.map(reportee => (
+          <li key={reportee.mail}>
+            {reportee.displayName} - {reportee.jobTitle}
+            {reportee.reportees && reportee.reportees.length > 0 && renderReportees(reportee.reportees)}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
+  return (
+    <div>
+      <h3>User Reportees</h3>
+      {isLoading ? <p>Loading reportees...</p> : renderReportees(reportees)}
+    </div>
+  );
+};
+
+export default UserReporteeInfo;
