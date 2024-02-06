@@ -153,18 +153,19 @@ const OrgChartComponent = ({ graphClient }: { graphClient: Promise<MSGraphClient
       try {
         const batchResponse = await client.api('/$batch').version('v1.0').post({ requests: batchRequests });
         let allReportees = [];
+        let nextUserIds = []; // Collect user IDs for the next batch
 
         for (const response of batchResponse.responses) {
           const reports = response.body.value;
           for (const report of reports) {
             if (report['@odata.type'] === '#microsoft.graph.user') {
               allReportees.push(report.displayName);
+              nextUserIds.push(report.id);
             }
           }
         }
 
         // Recursively fetch further reportees in batches
-        const nextUserIds = reports.map(r => r.id);
         const additionalReportees = await fetchReporteesInBatch(client, nextUserIds);
         return allReportees.concat(additionalReportees);
       } catch (error) {
@@ -196,5 +197,4 @@ const OrgChartComponent = ({ graphClient }: { graphClient: Promise<MSGraphClient
 };
 
 export default OrgChartComponent;
-
 
