@@ -1,3 +1,95 @@
+///
+import React, { useState, useEffect } from 'react';
+import { MSGraphClient } from '@microsoft/sp-http';
+
+const OrgChartComponent = ({ graphClient }: { graphClient: Promise<MSGraphClient> }) => {
+  const [reportees, setReportees] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchReporteesInBatch = async (client: MSGraphClient, userIds: string[]): Promise<string[]> => {
+      if (userIds.length === 0) return [];
+
+      const MAX_BATCH_SIZE = 20;
+      let allReportees = [];
+      let nextUserIds = []; 
+
+      // Splitting userIds into chunks of MAX_BATCH_SIZE
+      for (let i = 0; i < userIds.length; i += MAX_BATCH_SIZE) {
+        const userIdsChunk = userIds.slice(i, i + MAX_BATCH_SIZE);
+        const batchRequests = userIdsChunk.map((userId, index) => ({
+          id: `id-${i + index}`,
+          method: 'GET',
+          url: `/users/${userId}/directReports`
+        }));
+
+        try {
+          const batchResponse = await client.api('/$batch').version('v1.0').post({ requests: batchRequests });
+
+          for (const response of batchResponse.responses) {
+            const reports = response.body.value;
+            for (const report of reports) {
+              if (report['@odata.type'] === '#microsoft.graph.user') {
+                allReportees.push(report.displayName);
+                nextUserIds.push(report.id);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error in batch fetching', error);
+          throw error;
+        }
+      }
+
+      // Recursively fetch further reportees in batches
+      const additionalReportees = await fetchReporteesInBatch(client, nextUserIds);
+      return allReportees.concat(additionalReportees);
+    };
+
+    graphClient.then(client => {
+      client.api('/me').get()
+        .then(response => fetchReporteesInBatch(client, [response.id]))
+        .then(fetchedReportees => setReportees(fetchedReportees))
+        .catch(fetchError => setError(fetchError.message || 'Error fetching data'));
+    });
+  }, [graphClient]);
+
+  return (
+    <div>
+      {error && <div>Error: {error}</div>}
+      {reportees.length > 0 ? (
+        <ul>
+          {reportees.map((reportee, index) => (
+            <li key={index}>{reportee}</li>
+          ))}
+        </ul>
+      ) : <div>Loading reportees...</div>}
+    </div>
+  );
+};
+
+export default OrgChartComponent;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////
+////////////////////
 import React, { useState, useEffect } from 'react';
 import { MSGraphClient } from '@microsoft/sp-http';
 
