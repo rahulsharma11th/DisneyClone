@@ -55,3 +55,74 @@ const OrgChartComponent = ({ graphClient }) => {
 };
 
 export default OrgChartComponent;
+
+
+/////////////////////
+
+
+import React, { useState, useEffect } from 'react';
+import { MSGraphClient } from '@microsoft/sp-http';
+
+interface IHierarchyNode {
+  user: string;
+  reports: IHierarchyNode[];
+}
+
+const OrgChartComponent = ({ graphClient }: { graphClient: Promise<MSGraphClient> }) => {
+  const [hierarchy, setHierarchy] = useState<IHierarchyNode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchUserHierarchy = async (client: MSGraphClient, userId: string): Promise<IHierarchyNode> => {
+      try {
+        const user = await client.api(`/users/${userId}`).select('displayName').version('v1.0').get();
+        return { user: user.displayName, reports: await fetchDirectReports(client, userId) };
+      } catch (error) {
+        console.error('Error fetching user data', error);
+        throw error;
+      }
+    };
+
+    const fetchDirectReports = async (client: MSGraphClient, userId: string): Promise<IHierarchyNode[]> => {
+      try {
+        const reportsResponse = await client.api(`/users/${userId}/directReports`).version('v1.0').get();
+        const reports = reportsResponse.value;
+
+        // Batch requests for direct reports
+        const batchRequests = reports.map((report, index) => ({
+          id: index.toString(),
+          method: 'GET',
+          url: `/users/${report.id}/directReports`
+        }));
+
+        const batchResponse = await client.api('/$batch').post({ requests: batchRequests });
+        return await Promise.all(batchResponse.responses.map(async (response, index) => {
+          const reportUserId = reports[index].id;
+          return fetchUserHierarchy(client, reportUserId);
+        }));
+      } catch (error) {
+        console.error('Error fetching direct reports', error);
+        throw error;
+      }
+    };
+
+    graphClient.then(client => {
+      fetchUserHierarchy(client, 'me')
+        .then(fetchedHierarchy => setHierarchy(fetchedHierarchy))
+        .catch(fetchError => setError(fetchError.message || 'Error fetching data'));
+    });
+  }, [graphClient]);
+
+  const renderOrgChart = () => {
+    // Implement the visualization logic for the organization chart
+  };
+
+  return (
+    <div>
+      {error && <div>Error: {error}</div>}
+      {hierarchy ? renderOrgChart() : <div>Loading...</div>}
+    </div>
+  );
+};
+
+export default OrgChartComponent;
